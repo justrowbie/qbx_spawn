@@ -250,16 +250,8 @@ local function inputHandler()
     stopCamera()
 end
 
-RegisterNetEvent('qb-spawn:client:pstest', function()
-    local playerHouses = exports['ps-housing']:GetProperties()
-    for k,v in pairs(playerHouses) do
-        for a,b in pairs(v) do
-            print(k,a,b)
-        end
-    end
-end)
-
 AddEventHandler('qb-spawn:client:setupSpawns', function()
+    -- nothing: avoid double initialize from ps-housing
     TriggerEvent('ps-housing:client:initialiseProperties')
 
     spawns = {}

@@ -18,10 +18,3 @@ lib.callback.register('qbx_spawn:server:getHouses', function(source)
 
     return houseData
 end)
-
-lib.addCommand('pstest', {
-    help = 'pstesttest',
-    restricted = 'group.admin',
-}, function(source, args, raw)
-    TriggerClientEvent('qb-spawn:client:pstest', source)
-end)
