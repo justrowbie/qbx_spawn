@@ -25,10 +25,15 @@ local function stopCamera()
 end
 
 local function managePlayer()
+    Wait(3000)
+
     SetEntityCoords(cache.ped, -21.58, -583.76, 86.31, false, false, false, false)
     FreezeEntityPosition(cache.ped, true)
 
-    SetTimeout(500, function()
+    SetTimeout(1000, function()
+        if GetEntityHealth(cache.ped) < GetEntityMaxHealth(cache.ped) then
+            SetEntityHealth(cache.ped, GetEntityMaxHealth(cache.ped))
+        end
         DoScreenFadeIn(5000)
     end)
 end
@@ -126,7 +131,7 @@ local function scaleformDetails(index)
 
     BeginScaleformMovieMethod(scaleform, 'ADD_TEXT')
     ScaleformMovieMethodAddParamInt(index)
-    ScaleformMovieMethodAddParamTextureNameString(spawn.label)
+    ScaleformMovieMethodAddParamTextureNameString(locale(spawn.label))
     ScaleformMovieMethodAddParamFloat(spawn.coords.x)
     ScaleformMovieMethodAddParamFloat(spawn.coords.y - 500)
     ScaleformMovieMethodAddParamFloat(25 - math.random(0, 50))
@@ -211,17 +216,29 @@ local function inputHandler()
                 Wait(0)
             end
 
+            -- if spawns[currentButtonID].first_time then
+                -- TriggerServerEvent("ps-housing:server:createNewApartment", spawns[currentButtonID].key)
+            local id = spawns[currentButtonID].property_id
+            local inside = QBX.PlayerData.metadata.inside
+            local coords = spawns[currentButtonID].coords
+
+            SetEntityCoords(cache.ped, coords.x, coords.y, coords.z, false, false, false, false)
+            SetEntityHeading(cache.ped, coords.w or 0.0)
+
+            if spawns[currentButtonID].coords == lib.callback.await('qbx_spawn:server:getLastLocation') then -- last location
+                if inside then
+                    TriggerServerEvent('ps-housing:server:enterProperty', inside.property_id)
+                end
+            elseif inside then -- appartment
+                TriggerServerEvent('ps-housing:server:enterProperty', inside.property_id)
+            else
+                TriggerServerEvent('ps-housing:server:resetMetaData')
+            end
+
+            
             TriggerServerEvent('QBCore:Server:OnPlayerLoaded')
             TriggerEvent('QBCore:Client:OnPlayerLoaded')
             FreezeEntityPosition(cache.ped, false)
-
-            local spawnData = spawns[currentButtonID]
-            if spawnData.propertyId then
-                TriggerServerEvent('qbx_properties:server:enterProperty', { id = spawnData.propertyId, isSpawn = true })
-            else
-                SetEntityCoords(cache.ped, spawnData.coords.x, spawnData.coords.y, spawnData.coords.z, false, false, false, false)
-                SetEntityHeading(cache.ped, spawnData.coords.w or 0.0)
-            end
 
             DoScreenFadeIn(1000)
 
@@ -230,27 +247,44 @@ local function inputHandler()
 
         Wait(0)
     end
-
     stopCamera()
 end
 
+RegisterNetEvent('qb-spawn:client:pstest', function()
+    local playerHouses = exports['ps-housing']:GetProperties()
+    for k,v in pairs(playerHouses) do
+        for a,b in pairs(v) do
+            print(k,a,b)
+        end
+    end
+end)
+
 AddEventHandler('qb-spawn:client:setupSpawns', function()
+    TriggerEvent('ps-housing:client:initialiseProperties')
+
     spawns = {}
 
-    local lastCoords, lastPropertyId = lib.callback.await('qbx_spawn:server:getLastLocation')
-    spawns[#spawns + 1] = {
-        label = locale('last_location'),
-        coords = lastCoords,
-        propertyId = lastPropertyId
+    spawns[#spawns+1] = {
+        label = 'last_location',
+        coords = lib.callback.await('qbx_spawn:server:getLastLocation')
     }
 
     for i = 1, #config.spawns do
-        spawns[#spawns + 1] = config.spawns[i]
+        spawns[#spawns+1] = config.spawns[i]
     end
 
-    local houses = lib.callback.await('qbx_spawn:server:getHouses')
-    for i = 1, #houses do
-        spawns[#spawns + 1] = houses[i]
+    local houses = exports['ps-housing']:GetProperties()
+    for k,v in pairs(houses) do
+        if v.owner then
+            local coords = v.propertyData.door_data
+            local street = v.propertyData.street
+            spawns[#spawns+1] = {
+                id = v.property_id,
+                label = locale('property')..' '..street..' '..k,
+                coords = vec3(coords.x, coords.y, coords.z),
+                inside = v.inProperty or false
+            }
+        end
     end
 
     Wait(400)
