@@ -1,13 +1,10 @@
 local config = require 'config.client'
-local previewCam, scaleform, buttonsScaleform
-local currentButtonID, previousButtonID = 1, 1
-local arrowStart = {
-    vec2(-3150.25, -1427.83),
-    vec2(4173.08, 1338.72),
-    vec2(-2390.23, 6262.24)
-}
-
 local spawns
+local previewCam
+local scaleform
+local buttonsScaleform
+local currentButtonId = 1
+local previousButtonId = 1
 
 local function setupCamera()
     previewCam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', -24.77, -590.35, 90.8, -2.0, 0.0, 160.0, 45.0, false, 2)
@@ -25,15 +22,11 @@ local function stopCamera()
 end
 
 local function managePlayer()
-    Wait(3000)
-
     SetEntityCoords(cache.ped, -21.58, -583.76, 86.31, false, false, false, false)
     FreezeEntityPosition(cache.ped, true)
+    DisplayRadar(false)
 
-    SetTimeout(1000, function()
-        if GetEntityHealth(cache.ped) < GetEntityMaxHealth(cache.ped) then
-            SetEntityHealth(cache.ped, GetEntityMaxHealth(cache.ped))
-        end
+    SetTimeout(500, function()
         DoScreenFadeIn(5000)
     end)
 end
@@ -110,6 +103,12 @@ end
 
 local function scaleformDetails(index)
     local spawn = spawns[index]
+    local arrowStart = {
+        vec2(-3150.25, -1427.83),
+        vec2(4173.08, 1338.72),
+        vec2(-2390.23, 6262.24)
+    }
+
     BeginScaleformMovieMethod(scaleform, 'ADD_HIGHLIGHT')
     ScaleformMovieMethodAddParamInt(index)
     ScaleformMovieMethodAddParamFloat(spawn.coords.x)
@@ -131,7 +130,7 @@ local function scaleformDetails(index)
 
     BeginScaleformMovieMethod(scaleform, 'ADD_TEXT')
     ScaleformMovieMethodAddParamInt(index)
-    ScaleformMovieMethodAddParamTextureNameString(locale(spawn.label))
+    ScaleformMovieMethodAddParamTextureNameString(spawn.label)
     ScaleformMovieMethodAddParamFloat(spawn.coords.x)
     ScaleformMovieMethodAddParamFloat(spawn.coords.y - 500)
     ScaleformMovieMethodAddParamFloat(25 - math.random(0, 50))
@@ -162,7 +161,7 @@ local function scaleformDetails(index)
 end
 
 local function updateScaleform()
-    if previousButtonID == currentButtonID then return end
+    if previousButtonId == currentButtonId then return end
 
     for i = 1, #spawns, 1 do
         BeginScaleformMovieMethod(scaleform, 'REMOVE_HIGHLIGHT')
@@ -186,26 +185,26 @@ local function updateScaleform()
         EndScaleformMovieMethod()
     end
 
-    scaleformDetails(currentButtonID)
+    scaleformDetails(currentButtonId)
 end
 
 local function inputHandler()
     while DoesCamExist(previewCam) do
         if IsControlJustReleased(0, 188) then
-            previousButtonID = currentButtonID
-            currentButtonID -= 1
+            previousButtonId = currentButtonId
+            currentButtonId -= 1
 
-            if currentButtonID < 1 then
-                currentButtonID = #spawns
+            if currentButtonId < 1 then
+                currentButtonId = #spawns
             end
 
             updateScaleform()
         elseif IsControlJustReleased(0, 187) then
-            previousButtonID = currentButtonID
-            currentButtonID += 1
+            previousButtonId = currentButtonId
+            currentButtonId += 1
 
-            if currentButtonID > #spawns then
-                currentButtonID = 1
+            if currentButtonId > #spawns then
+                currentButtonId = 1
             end
 
             updateScaleform()
@@ -216,29 +215,19 @@ local function inputHandler()
                 Wait(0)
             end
 
-            -- if spawns[currentButtonID].first_time then
-                -- TriggerServerEvent("ps-housing:server:createNewApartment", spawns[currentButtonID].key)
-            local id = spawns[currentButtonID].property_id
-            local inside = QBX.PlayerData.metadata.inside
-            local coords = spawns[currentButtonID].coords
-
-            SetEntityCoords(cache.ped, coords.x, coords.y, coords.z, false, false, false, false)
-            SetEntityHeading(cache.ped, coords.w or 0.0)
-
-            if spawns[currentButtonID].coords == lib.callback.await('qbx_spawn:server:getLastLocation') then -- last location
-                if inside then
-                    TriggerServerEvent('ps-housing:server:enterProperty', inside.property_id)
-                end
-            elseif inside then -- appartment
-                TriggerServerEvent('ps-housing:server:enterProperty', inside.property_id)
-            else
-                TriggerServerEvent('ps-housing:server:resetMetaData')
-            end
-
-            
             TriggerServerEvent('QBCore:Server:OnPlayerLoaded')
             TriggerEvent('QBCore:Client:OnPlayerLoaded')
             FreezeEntityPosition(cache.ped, false)
+            DisplayRadar(true)
+
+            local spawnData = spawns[currentButtonId]
+
+            if spawnData.propertyId then
+                TriggerServerEvent('qbx_properties:server:enterProperty', { id = spawnData.propertyId, isSpawn = true })
+            else
+                SetEntityCoords(cache.ped, spawnData.coords.x, spawnData.coords.y, spawnData.coords.z, false, false, false, false)
+                SetEntityHeading(cache.ped, spawnData.coords.w or 0.0)
+            end
 
             DoScreenFadeIn(1000)
 
@@ -247,46 +236,49 @@ local function inputHandler()
 
         Wait(0)
     end
+
     stopCamera()
 end
 
-AddEventHandler('qb-spawn:client:setupSpawns', function()
-    -- nothing: avoid double initialize from ps-housing
-    TriggerEvent('ps-housing:client:initialiseProperties')
-
+RegisterNetEvent('qb-spawn:client:setupSpawns', function(isNew)
     spawns = {}
+    
+    local lastCoords, lastPropertyId = lib.callback.await('qbx_spawn:server:getLastLocation')
 
-    spawns[#spawns+1] = {
-        label = 'last_location',
-        coords = lib.callback.await('qbx_spawn:server:getLastLocation')
-    }
-
-    for i = 1, #config.spawns do
-        spawns[#spawns+1] = config.spawns[i]
-    end
-
-    local houses = exports['ps-housing']:GetProperties()
-    for k,v in pairs(houses) do
-        if v.owner then
-            local coords = v.propertyData.door_data
-            local street = v.propertyData.street
-            spawns[#spawns+1] = {
-                id = v.property_id,
-                label = locale('property')..' '..street..' '..k,
-                coords = vec3(coords.x, coords.y, coords.z),
-                inside = v.inProperty or false
-            }
+    --nt: based on config.randomSpawn
+    if config.randomSpawn then
+        local coords = nil
+        if isNew then
+            coords = config.randomCoords[math.random(1, #config.randomCoords)]
+        else    
+            coords = lastCoords
         end
+        startRandomSpawn(coords)
+    else
+        spawns[#spawns + 1] = {
+            label = locale('last_location'),
+            coords = lastCoords,
+            propertyId = lastPropertyId
+        }
+
+        for i = 1, #config.spawns do
+            spawns[#spawns + 1] = config.spawns[i]
+        end
+
+        local properties = lib.callback.await('qbx_spawn:server:getProperties')
+        for i = 1, #properties do
+            spawns[#spawns + 1] = properties[i]
+        end
+
+        Wait(400)
+
+        managePlayer()
+        setupCamera()
+        setupMap()
+
+        Wait(400)
+
+        scaleformDetails(currentButtonId)
+        inputHandler()
     end
-
-    Wait(400)
-
-    managePlayer()
-    setupCamera()
-    setupMap()
-
-    Wait(400)
-
-    scaleformDetails(currentButtonID)
-    inputHandler()
 end)
